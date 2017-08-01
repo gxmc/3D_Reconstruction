@@ -9,15 +9,25 @@ import time
 import cv2
 import numpy as np
 
+# Compiling from sources:
+# 1) OpenMVS (https://github.com/cdcseacave/openMVS/wiki/Building)
+# 2) COLMAP (https://colmap.github.io/install.html#build-from-source)
+# 3) PyMesh (https://github.com/qnzhou/PyMesh#build)
+
+# For OpenMVS and others using:
+# 1) Eigen 3.2.10 (3.3._ doesn't works)
+# 2) Ceres-solver (http://ceres-solver.org/installation.html)
+
 COLMAP_BIN = "/usr/local/bin"
 OPENMVS_BIN = "/usr/local/bin/OpenMVS"
-REMOVE_NAN = "/home/user/PycharmProjects"
+REMOVE_NAN = "/home/user/PycharmProjects/Reconstruction"
 WORKING_PATH = "/result"
 SEQUENTIAL_PATH = "/sequential_matching"
 EXHAUSTIVE_PATH = "/exhaustive_matching"
 DATABASE_PATH = "/database.db"
 
 
+# Print highlighting
 class Colors:
     def __init__(self):
         None
@@ -28,14 +38,23 @@ class Colors:
     FAIL = '\033[91m'
 
 
-def get_sobel(channel):
-    sobelx = cv2.Sobel(channel, cv2.CV_16S, 1, 0, borderType=cv2.BORDER_REPLICATE)
-    sobely = cv2.Sobel(channel, cv2.CV_16S, 0, 1, borderType=cv2.BORDER_REPLICATE)
-    sobel = np.hypot(sobelx, sobely)
+def print_header(some_str):
+    print Colors.HEADER + some_str + Colors.ENDC
+
+
+# Object detection and filling background with black pixels (http://www.codepasta.com/site/vision/segmentation/)
+def get_sobel(color_channel):
+    sobel_dx = cv2.Sobel(color_channel, cv2.CV_16S, 1, 0, borderType=cv2.BORDER_REPLICATE)  # OX gradient
+    sobel_dy = cv2.Sobel(color_channel, cv2.CV_16S, 0, 1, borderType=cv2.BORDER_REPLICATE)  # OY gradient
+    sobel = np.hypot(sobel_dx, sobel_dy)  # get the magnitude of gradients combined
     return sobel
 
 
 def find_significant_contours(sobel_8u):
+    # The thing to understand here is "heirarchical" contours.
+    # What that means is, any contour (c1) enclosed inside another contour (c2) is treated as a "child" of c2.
+    # And contours can be nested to more than one level (So the structure is like a tree).
+    # OpenCV returns the tree as a flat array though; with each tuple containing the index to the parent contour.
     image, contours, heirarchy = cv2.findContours(sobel_8u, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
 
     # Find level 1 contours
@@ -48,12 +67,14 @@ def find_significant_contours(sobel_8u):
             level1.append(tupl)
 
     # From among them, find the contours with large surface area.
+    # Next we remove any contour that doesn't take up at least 5% of the image in area.
     significant = []
-    tooSmall = sobel_8u.size * 5 / 100  # If contour isn't covering 5% of total area of image then it probably is too small
+    # If contour isn't covering 5% of total area of image then it probably is too small
+    too_small = sobel_8u.size * 5 / 100
     for tupl in level1:
         contour = contours[tupl[0]]
         area = cv2.contourArea(contour)
-        if area > tooSmall:
+        if area > too_small:
             # cv2.drawContours(img, [contour], 0, (0, 255, 0), 2, cv2.LINE_AA, maxLevel=1)
             significant.append([contour, area])
 
@@ -61,24 +82,44 @@ def find_significant_contours(sobel_8u):
     return [x[0] for x in significant]
 
 
-def segment(path, write_path):
-    img = cv2.imread(path)
+def scale_image(img):
+    # 2560x1920 - 5 Megapixel - consume a lot of time
+    # 2240x1680 - 4 Megapixel - consume a lot of time
+    # 2048x1536 - 3 Megapixel - consume more time than
+    # 1920x1440 ~ 2.5 Mpx - compromise between spent time and good quality
+    # 1600x1200 - 2 Megapixel - get bad results
+
     height, width = img.shape[:2]
     min_size = min(height, width)
     max_size = max(height, width)
-    if min_size > 1200 or max_size > 1600:
+    # Scale big image to 3:4 format: 1920x1440 (WxH)
+    if min_size > 1440 or max_size > 1920:
         if height > width:
-            h_multi = 1600.0 / height
-            w_multi = 1200.0 / width
+            h_multi = 1920.0 / height
+            w_multi = 1440.0 / width
         else:
-            h_multi = 1200.0 / height
-            w_multi = 1600.0 / width
+            h_multi = 1440.0 / height
+            w_multi = 1920.0 / width
         img = cv2.resize(img, None, fx=w_multi, fy=h_multi, interpolation=cv2.INTER_CUBIC)
+    return img
+
+
+def object_detection(path, write_path):
+    img = cv2.imread(path)
+    img = scale_image(img)
+
+    # STEP 1. Edge detection
     blurred = cv2.GaussianBlur(img, (9, 9), 0)  # Remove noise
-
     # Edge operator
-    sobel = np.max(np.array([get_sobel(blurred[:, :, 0]), get_sobel(blurred[:, :, 1]), get_sobel(blurred[:, :, 2])]), axis=0)
+    # Since we are dealing with color images,
+    # the edge detction needs to be run on each color channel and then they need to be combined.
+    # The way I am doing that is by finding the max intesity from among the R, G and B edges.
+    # I've tried using average of the R,G,B edges, however max seems to give better results.
+    sobel = np.max(
+        np.array([get_sobel(blurred[:, :, 0]), get_sobel(blurred[:, :, 1]), get_sobel(blurred[:, :, 2])]), axis=0
+    )
 
+    # STEP 2. Noise removing
     # Noise reduction trick, from http://sourceforge.net/p/octave/image/ci/default/tree/inst/edge.m#l182
     mean = np.mean(sobel)
 
@@ -86,21 +127,21 @@ def segment(path, write_path):
     sobel[sobel <= mean] = 0
     sobel[sobel > 255] = 255
 
-    # cv2.imwrite('output/edge.png', sobel);
-
     sobel_8u = np.asarray(sobel, np.uint8)
 
-    # Find contours
+    # STEP 3. Contour detection
     significant = find_significant_contours(sobel_8u)
 
+    # STEP 4. Background removing by creating a mask to fill the contours.
     # Mask
     mask = sobel.copy()
     mask[mask > 0] = 0
     cv2.fillPoly(mask, significant, 255)
+
     # Invert mask
     mask = np.logical_not(mask)
 
-    #Finally remove the background
+    # Finally remove the background
     img[mask] = 0
 
     fname = path.split('/')[-1]
@@ -111,24 +152,16 @@ def segment(path, write_path):
     print (path)
 
 
-def create_directory(full_path):
-    if not os.path.exists(full_path):
-        os.mkdir(full_path)
-
-
-def image_procesing(write_path, process):
+def image_processing(write_path, process):
     image_path = get_parent_dir(get_parent_dir(write_path))
     if process:
         for filename in sorted(os.listdir(image_path)):
             if ".jpg" in filename.lower():
                 curr_image = os.path.join(os.path.abspath(image_path), filename)
-                segment(curr_image, write_path + "/")
+                object_detection(curr_image, write_path + "/")
 
 
-def print_header(some_str):
-    print Colors.HEADER + some_str + Colors.ENDC
-
-
+# Arguments parsing and create directory tree
 def path_existence(input_dir):
     if not os.path.exists(input_dir):
         import sys
@@ -150,6 +183,15 @@ def parse_args():
     return input_dir
 
 
+def create_directory(full_path):
+    if not os.path.exists(full_path):
+        os.mkdir(full_path)
+
+
+def get_parent_dir(directory):
+    return os.path.dirname(directory)
+
+
 def create_dir_structure(input_dir):
     create_directory(input_dir + WORKING_PATH)
     write_path = input_dir + WORKING_PATH
@@ -160,6 +202,7 @@ def create_dir_structure(input_dir):
     return write_path
 
 
+# Process creating and aborting
 def check_process_ending(process):
     stdout, stderr = process.communicate()
     if process.returncode != 0:
@@ -176,6 +219,12 @@ def start_process(args):
     check_process_ending(process)
 
 
+# COLMAP SFM pipeline (https://colmap.github.io/tutorial.html#structure-from-motion)
+# 1. Feature extraction.
+# 2. Matching (sequential or exhaustive)
+# 3. Sparse reconstruction (camera positions, sparse point cloud, 2D-3D projections)
+# 4. Image undistortion for correct dense reconstruction
+# 5. Convert COLMAP data to NVM format. Then convert NVM to MVS format.
 def extract_features(input_directory):
     print_header("1. Extract features")
     database_path = input_directory + DATABASE_PATH
@@ -197,7 +246,7 @@ def sequential_matcher(input_directory):
     working_directory = input_directory + SEQUENTIAL_PATH
     args = [os.path.join(COLMAP_BIN, "sequential_matcher"),
             "--database_path", working_directory + DATABASE_PATH,
-            "--SiftMatching.num_threads", "3"
+            "--SiftMatching.num_threads", "8"
             ]
     start_process(args)
     return working_directory
@@ -208,7 +257,7 @@ def exhaustive_matcher(input_directory):
     working_directory = input_directory + EXHAUSTIVE_PATH
     args = [os.path.join(COLMAP_BIN, "exhaustive_matcher"),  # sequential_matcher
             "--database_path", working_directory + DATABASE_PATH,
-            "--SiftMatching.num_threads", "3"
+            "--SiftMatching.num_threads", "8"
             ]
     start_process(args)
     return working_directory
@@ -254,10 +303,6 @@ def model_converter_from_colmap_to_nvm(input_directory):
     return undistorted_images_path
 
 
-def get_parent_dir(directory):
-    return os.path.dirname(directory)
-
-
 def convert_from_nvm_to_mvs(path_to_nvm_file):
     print_header("6. Convert " + path_to_nvm_file + " to " + path_to_nvm_file.split('.')[0] + ".mvs")
     working_folder = path_to_nvm_file.rsplit("/", 1)[0]
@@ -269,6 +314,29 @@ def convert_from_nvm_to_mvs(path_to_nvm_file):
     start_process(args)
 
 
+# OpenMVS pipeline (https://github.com/cdcseacave/openMVS/wiki/Usage)
+# It has 4 modules (https://github.com/cdcseacave/openMVS/wiki/Modules)
+# 1. Sparse pointcloud densifying (http://www.connellybarnes.com/work/publications/2011_patchmatch_cacm.pdf)
+#           (PatchMatch: A Randomized Correspondence Algorithm for Structural Image Editing C. Barnes et al. 2009).
+
+# 2. Remove NAN points after densifying. (https://github.com/cdcseacave/openMVS/wiki/Interface)
+#           (Using MVS interface)
+
+# 3. Mesh reconstruction (https://www.hindawi.com/journals/isrn/2014/798595/)
+#           (Exploiting Visibility Information in Surface Reconstruction
+#               to Preserve Weakly Supported Surfaces M. Jancosek et al. 2014).
+#
+#   M. Jancosek dissertation: Large Scale Surface Reconstruction based on Point Visibility
+#       (https://dspace.cvut.cz/bitstream/handle/10467/60872/Disertace_Jancosek_2014.pdf?sequence=1)
+#
+# 4. Mesh refinement (http://sci-hub.cc/http://ieeexplore.ieee.org/document/5989831/)
+#           (High Accuracy and Visibility-Consistent Dense Multiview Stereo HH. Vu et al. 2012).
+#
+# 5. Mesh texturing (https://pdfs.semanticscholar.org/c8e6/eefd01b17489d38c355cf21dd492cbd02dab.pdf)
+#           (Let There Be Color! - Large-Scale Texturing of 3D Reconstructions M. Waechter et al. 2014).
+#
+# 6. Remeshing and retexturing (Pymesh + Mesh texturing) (http://pymesh.readthedocs.io/en/latest/)
+
 def densify_point_cloud(reconstruction_dir):
     print_header("6. Densify point cloud")
     args = [os.path.join(OPENMVS_BIN, "DensifyPointCloud"),
@@ -276,7 +344,7 @@ def densify_point_cloud(reconstruction_dir):
             "-w", reconstruction_dir,
             "-o", reconstruction_dir + "/scene_dense.mvs",
             "--process-priority", "1",
-            "--max-threads", "8"
+            "--resolution-level", "1"
             ]
     start_process(args)
 
@@ -294,12 +362,12 @@ def reconstruct_mesh(reconstruction_dir):
     args = [os.path.join(OPENMVS_BIN, "ReconstructMesh"),
             "-i", reconstruction_dir + "/scene_dense.mvs",
             "-w", reconstruction_dir,
-            "--max-threads", "8",
             "--process-priority", "1",
-            "-d", "0.5",
-            "--thickness-factor", "1.2",
-            "--quality-factor", "2.0",
-            "--close-holes", "70"
+            "-d", "7",
+            "--thickness-factor", "1.0",
+            "--quality-factor", "2.5",
+            "--close-holes", "30",
+            "--smooth", "3"
             ]
     start_process(args)
 
@@ -308,11 +376,10 @@ def refine_mesh(reconstruction_dir):
     print_header("7. Refine the mesh")
     args = [os.path.join(OPENMVS_BIN, "RefineMesh"),
             "-i", reconstruction_dir + "/scene_dense_mesh.mvs",
-            "--max-threads", "8",
             "--process-priority", "1",
-            "--resolution-level", "3",
-            "--ensure-edge-size", "1",
-            "--close-holes", "70",
+            "--resolution-level", "0",
+            "--ensure-edge-size", "2",
+            "--close-holes", "30",
             "-w", reconstruction_dir
             ]
     start_process(args)
@@ -330,7 +397,7 @@ def texture_mesh(reconstruction_dir, length):
             "-o", output_path + "/scene_texture_" + str(length) + ".mvs",
             "-w", reconstruction_dir,
             "--process-priority", "1",
-            "--max-threads", "8",
+            "--export-type", "obj",
             "--mesh-file", mesh_file_name
             ]
     start_process(args)
@@ -345,7 +412,7 @@ def remeshing_and_texture(reconstruction_dir):
         start = time.time()
         mesh = pymesh.load_mesh(reconstruction_dir + "/scene_dense_mesh_refine.ply")
         mesh, info = pymesh.collapse_short_edges(mesh, rel_threshold=float(length))
-        if len(mesh.faces) > 1000 and length < 4:
+        if len(mesh.vertices) > 1000 and length < 4:
             pymesh.save_mesh(reconstruction_dir + "/remesh_" + str(length) + ".ply", mesh)
             end = time.time()
             print("Elapsed time: %d sec" % (end - start) + "\n")
@@ -356,6 +423,7 @@ def remeshing_and_texture(reconstruction_dir):
             return -1
 
 
+# Modules union to pipeline
 def run_feature_matcher(working_directory, bool_sequential):
     working_directory = get_parent_dir(working_directory)
     if bool_sequential:
@@ -386,21 +454,24 @@ def sfm_mvs_pipeline(working_directory, bool_sequential):
     run_mvs(reconstruction_directory)
 
 
-# main
+# MAIN
+
 # parse arguments and check path existence
 start_time = time.time()
 inputDir = parse_args()
 workingDir = create_dir_structure(inputDir)
-image_procesing(workingDir, True)  # change dir to dir with processed images (inputDir/binary/)
+image_processing(workingDir, True)  # change dir to dir with processed images (inputDir/binary/)
 extract_features(workingDir)
 
-# sfm_mvs_pipeline(workingDir, 0)
-
+curr_time = time.time()
 p = Process(target=sfm_mvs_pipeline, args=(workingDir, 1,))
 p.start()
 p.join()
+end_time = time.time()
+print("--- %s seconds ---" % round((time.time() - start_time), 2))
+
 p1 = Process(target=sfm_mvs_pipeline, args=(workingDir, 0,))
 p1.start()
 p1.join()
-print("--- %s seconds ---" % round((time.time() - start_time), 2))
+print("---%s seconds ---" % round((time.time() - start_time - (end_time - curr_time)), 2))
 
