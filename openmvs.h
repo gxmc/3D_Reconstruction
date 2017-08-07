@@ -41,7 +41,6 @@ class OpenMVS {
     fs::path mesh_reconstruction_path;
     fs::path mesh_refinement_path;
     fs::path mesh_texture_path;
-    fs::path mesh_resize_path;
 
     void convert_from_nvm_to_mvs();
 
@@ -51,15 +50,15 @@ class OpenMVS {
 
     void remove_nan_points();
 
-    void reconstruct_mesh(float const d = 7.0);
+    void reconstruct_mesh(float const d);
 
     void refining_mesh();
 
     std::string double_to_string(double val);
 
-    void resizing_mesh(double ratio = 0.2);
+    void resize_mesh(double ratio, double agressiveness);
 
-    fs::path texturing_mesh(double const ratio = 0);
+    fs::path texturing_mesh(double const ratio);
 
     void centering_textured_mesh(fs::path const & textured_mesh_path);
 

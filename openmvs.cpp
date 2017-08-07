@@ -2,7 +2,8 @@
 // Created by user on 8/6/17.
 //
 
-#include <openmvs.h>
+#include "Simplify.h"
+#include "openmvs.h"
 
 OpenMVS::OpenMVS(fs::path const & dir) :
         reconstruction_dir(dir.parent_path())
@@ -12,7 +13,6 @@ OpenMVS::OpenMVS(fs::path const & dir) :
     mesh_refinement_path = local_path::OPENMVS_BIN / "RefineMesh ";
     mesh_texture_path = local_path::OPENMVS_BIN / "TextureMesh ";
     interface_mvs_path = local_path::OPENMVS_BIN / "InterfaceVisualSFM ";
-    mesh_resize_path = local_path::MESH_RESIZE / "simplify ";
 }
 
 void OpenMVS::convert_from_nvm_to_mvs() {
@@ -78,7 +78,7 @@ void OpenMVS::remove_nan_points() {
     scene.pointcloud.Save(path_to_output_cloud);
 }
 
-void OpenMVS::reconstruct_mesh(float const d) {
+void OpenMVS::reconstruct_mesh(float const d = 7.0) {
     std::cout << "9. Reconstruct the mesh " << std::endl;
 
     // Prepare args
@@ -110,36 +110,102 @@ std::string OpenMVS::double_to_string(double val) {
     return std::to_string(val).substr(0, 4);
 }
 
-void OpenMVS::resizing_mesh(double ratio) {
-    std::cout << "11. Resize the mesh.\nRatio: (default = 0.2) for example 0.2 will decimate 80% of triangles " << std::endl;
-    std::string str_ratio = double_to_string(ratio);
-    // Prepare args
-    std::string input_file_arg(reconstruction_dir.string() + "/scene_dense_mesh_refine.obj ");
-    std::string output_file_arg(reconstruction_dir.string() + "/scene_dense_mesh_refine_ratio_" + str_ratio + ".obj ");
-    std::string param(str_ratio);
+//template <class L, class R>
+//void vector_assing(L & from, std::vector<R> & to) {
+//    R tmp;
+//    for (auto it = from.cbegin(); it != from.cend(); ++it) {
+//        tmp = {*it[0], *it[1], *it[2]};
+//        to.push_back(tmp);
+//    }
+//};
 
-    // Run
-    std::string resizing(mesh_resize_path.string() + input_file_arg + output_file_arg + param);
-    int reconstruction_has_done = system(resizing.c_str());
-    assert(!reconstruction_has_done);
-}
+void OpenMVS::resize_mesh(double ratio = 0.5, double agressiveness = 7.0) {
+    printf("Mesh Simplification (C)2014 by Sven Forstmann in 2014, MIT License (%zu-bit)\n", sizeof(size_t)*8);
+    std::cout << "Resize mesh? (yes, no)" << std::endl;
+    std::string answer;
+//    std::cin >> answer;
+//    if (answer == "no") {
+//        return;
+//    }
+    clock_t start = clock();
+    MVS::Scene scene(1);
+    bool success = scene.Load(reconstruction_dir.string() + "/scene_dense_mesh_refine.mvs");
+    assert(success);
 
-fs::path OpenMVS::texturing_mesh(double const ratio) {
-    std::cout << "12. Texture the remeshed model " << std::endl;
-    std::string str_ratio = double_to_string(ratio);
-    std::string mesh_filename;
-    if (str_ratio == "0.00") {
-        mesh_filename =  "scene_dense_mesh_refine.ply";
-    } else {
-        mesh_filename = "scene_dense_mesh_refine_ratio_" + str_ratio + ".ply";
+    Simplify::vertices.reserve(scene.mesh.vertices.size());
+    Simplify::Vertex v;
+
+    for (auto i = 0; i < scene.mesh.vertices.size(); ++i) {
+        v.p.x = scene.mesh.vertices[i].x;
+        v.p.y = scene.mesh.vertices[i].y;
+        v.p.z = scene.mesh.vertices[i].z;
+        Simplify::vertices.push_back(v);
     }
 
+
+    Simplify::triangles.reserve(scene.mesh.faces.size());
+    Simplify::Triangle t;
+    for (auto i = 0; i < scene.mesh.faces.size(); ++i) {
+        t.v[0] = scene.mesh.faces[i].x;
+        t.v[1] = scene.mesh.faces[i].y;
+        t.v[2] = scene.mesh.faces[i].z;
+        Simplify::triangles.push_back(t);
+    }
+
+
+    if ((Simplify::triangles.size() < 3) || (Simplify::vertices.size() < 3))
+        return;
+    int target_count = (int)round((double)Simplify::triangles.size() * ratio);
+
+    if (target_count < 4) {
+        printf("Object will not survive such extreme decimation\n");
+        return;
+    }
+
+    printf("Input: %zu vertices, %zu triangles (target %d)\n", Simplify::vertices.size(), Simplify::triangles.size(), target_count);
+    int startSize = Simplify::triangles.size();
+    Simplify::simplify_mesh(target_count, agressiveness, true);
+
+    if ( Simplify::triangles.size() >= startSize) {
+        printf("Unable to reduce mesh.\n");
+    }
+
+    scene.mesh.vertices.Reset();
+    MVS::Mesh::Vertex v_mvs;
+    for (auto i = 0; i <  Simplify::vertices.size(); ++i) {
+        v_mvs.x = Simplify::vertices[i].p.x;
+        v_mvs.y = Simplify::vertices[i].p.y;
+        v_mvs.z = Simplify::vertices[i].p.z;
+        scene.mesh.vertices.push_back(v_mvs);
+    }
+
+    scene.mesh.faces.Reset();
+    MVS::Mesh::Face f;
+    for (auto i = 0; i < Simplify::triangles.size(); ++i) {
+        f[0] = Simplify::triangles[i].v[0];
+        f[1] = Simplify::triangles[i].v[1];
+        f[2] = Simplify::triangles[i].v[2];
+        scene.mesh.faces.push_back(f);
+    }
+
+    scene.Save(reconstruction_dir.string() + "/scene_dense_mesh_refine_resized.mvs");
+    scene.mesh.Save(reconstruction_dir.string() + "/scene_dense_mesh_refine_resized.ply");
+    printf("Output: %zu vertices, %zu triangles (%f reduction; %.4f sec)\n",Simplify::vertices.size(), Simplify::triangles.size()
+            , (float)Simplify::triangles.size()/ (float) startSize  , ((float)(clock()-start))/CLOCKS_PER_SEC );
+    Simplify::vertices.clear();
+    Simplify::triangles.clear();
+}
+
+fs::path OpenMVS::texturing_mesh(double const ratio = 0.0) {
+    std::cout << "12. Texture the remeshed model " << std::endl;
+    std::string str_ratio = double_to_string(ratio);
+//    std::string mesh_filename = "scene_dense_mesh_refine_resized" + str_ratio + ".ply";
+
     // Prepare args
-    std::string input_file_arg(" -i scene_dense.mvs");
+    std::string input_file_arg(" -i scene_dense_mesh_refine_resized.mvs");
     std::string output_file_arg(" -o scene_texture_" + str_ratio + ".mvs");
     std::string working_dir(" -w " + reconstruction_dir.string());
-    WORKING_FOLDER_FULL = reconstruction_dir.string();
-    std::string params(" --process-priority 1 --mesh-file " + mesh_filename);
+    std::string params(" --process-priority 1 ");
 
     // Run
     std::string texturing(mesh_texture_path.string() + input_file_arg + output_file_arg + working_dir + params);
@@ -176,12 +242,12 @@ void OpenMVS::centering_textured_mesh(fs::path const & textured_mesh_path) {
 }
 
 void OpenMVS::build_model_from_sparse_point_cloud() {
-//    convert_from_nvm_to_mvs();
-//    densify_point_cloud();
-//    remove_nan_points();
-//    reconstruct_mesh();
-//    refining_mesh();
-//    mvs.resizing_mesh();
+    convert_from_nvm_to_mvs();
+    densify_point_cloud();
+    remove_nan_points();
+    reconstruct_mesh();
+    refining_mesh();
+    resize_mesh();
     fs::path path = texturing_mesh();
-//    centering_textured_mesh(path);
+    centering_textured_mesh(path);
 }

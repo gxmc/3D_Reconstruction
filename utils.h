@@ -17,7 +17,6 @@ namespace local_path {
     static fs::path DATABASE_PATH = "/database.db";
     static fs::path OPENMVS_BIN = "/usr/local/bin/OpenMVS";
     static fs::path COLMAP_BIN = "/usr/local/bin";
-    static fs::path MESH_RESIZE = "/home/user/CLionProjects/Reconstruction";
 }
 
 #endif //RECONSTRUCTION_UTILS_H

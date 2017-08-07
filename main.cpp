@@ -1,7 +1,6 @@
 #include <iostream>
 #include <vector>
 
-
 // Compiling from sources:
 // 1) OpenMVS (https://github.com/cdcseacave/openMVS/wiki/Building)
 // 2) COLMAP (https://colmap.github.io/install.html#build-from-source)
@@ -26,16 +25,18 @@ void reconstruction_pipeline(std::string const & working_dir, bool is_sequential
     printf("Reconstruction consumed: %s\n", TD_TIMER_GET_FMT().c_str());
 }
 
-int main() {
-    fs::path input_dir = "/home/user/CLionProjects/Reconstruction/bottle";
+
+int main(int args, char* argv[]) {
+    std::cout << argv[1] << std::endl;
+    fs::path input_dir = std::string(argv[1]);
+//    std::cout << input_dir << std::endl;
 
     // Image processing
     ImageProcessing processing(input_dir);
-//    processing.start();
+    processing.start();
     std::string working_dir = processing.get_working_dir();
 
-
     reconstruction_pipeline(working_dir, 1);
-//    reconstruction_pipeline(working_dir, 0);
+    reconstruction_pipeline(working_dir, 0);
     return 0;
 }

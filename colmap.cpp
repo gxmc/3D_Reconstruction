@@ -112,18 +112,18 @@ Colmap::Colmap(std::string const & image_dir, std::string const & colmap_bin_dir
     mapper = colmap_bin / "mapper";
     image_undistorter_path = colmap_bin / "image_undistorter";
     model_converter_path = colmap_bin / "model_converter";
+    extract_features();
 }
 
 fs::path const Colmap::sfm(bool sequential) {
-//    extract_features();
-//    feature_matching(sequential);
+    feature_matching(sequential);
     fs::path working_dir;
     if (sequential) {
         working_dir = sequential_dir;
     } else {
         working_dir = exhaustive_dir;
     }
-//    sparse_reconstruction(working_dir);
-//    image_undistorting(working_dir);
+    sparse_reconstruction(working_dir);
+    image_undistorting(working_dir);
     return model_converting(working_dir);
 }
