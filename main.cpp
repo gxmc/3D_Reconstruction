@@ -10,16 +10,19 @@
 // 1) Eigen 3.2.10 (3.3._ doesn't works)
 // 2) Ceres-solver (http://ceres-solver.org/installation.html)
 
-#include <image_processing.h>
-#include <colmap.h>
-#include <openmvs.h>
+#include "image_processing.h"
+#include "colmap.h"
+#include "openmvs.h"
 
 void reconstruction_pipeline(std::string const & working_dir, bool is_sequential) {
     TD_TIMER_START();
     // Run sequential SfM
     Colmap colmap(working_dir, local_path::COLMAP_BIN);
     fs::path const path_to_nvm_model = colmap.sfm(is_sequential);
-
+    if (path_to_nvm_model.empty()) {
+        std::cerr << "Reconstruction field! Can't process image dataset." << std::endl;
+        return;
+    }
     OpenMVS mvs(path_to_nvm_model);
     mvs.build_model_from_sparse_point_cloud();
     printf("Reconstruction consumed: %s\n", TD_TIMER_GET_FMT().c_str());
@@ -29,7 +32,6 @@ void reconstruction_pipeline(std::string const & working_dir, bool is_sequential
 int main(int args, char* argv[]) {
     std::cout << argv[1] << std::endl;
     fs::path input_dir = std::string(argv[1]);
-//    std::cout << input_dir << std::endl;
 
     // Image processing
     ImageProcessing processing(input_dir);

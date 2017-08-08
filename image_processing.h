@@ -20,29 +20,37 @@ class ImageProcessing {
 
     fs::path working_dir;
 
-    cv::Mat calc_magnitude(cv::Mat const & dx, cv::Mat const & dy);
+    // Resize image to to 3:4 format: 1920x1440 (WxH)
+    cv::Mat scale_image(cv::Mat & img);
 
-    short biggest(short x, short y, short z);
+    // Get the magnitude of gradients
+    cv::Mat calc_magnitude(cv::Mat const & gx, cv::Mat const & gy);
 
+    // Object detection and filling background with black pixels (http://www.codepasta.com/site/vision/segmentation/)
+    cv::Mat get_sobel(cv::Mat const & channel);
+
+    short max(short x, short y, short z);
+
+    // Get max intensity from 3 BGR channels and calculate intensity mean value
     cv::Mat get_max_intensity(cv::Mat const & b, cv::Mat const & g, cv::Mat const & r, long & mean_value);
 
+    // Zero any values less than mean_value. This reduces a lot of noise.
     void remove_noise(cv::Mat & magnitude, long & mean_value);
-
-    cv::Mat get_sobel(cv::Mat const & channel);
 
     void find_significant_contours(cv::Mat const & magnitude, Vector <Vector<cv::Point>> & points);
 
+    // Apply background-mask to image
     void apply_mask(cv::Mat & image, cv::Mat const & mask);
 
-    cv::Mat scale_image(cv::Mat & img);
+    // Detect object on image and fill background with black color
+    void object_detection(cv::Mat & img, std::string const & image_filename, fs::path const & write_path);
 
-    void object_detection(fs::path const & image_path, fs::path write_path);
-
+    // Create directory tree
     fs::path create_dir_structure(fs::path const & path);
-
 public:
     explicit ImageProcessing(fs::path & path);
 
+    // Read files, try open them as images and object detection
     void start();
 
     std::string get_working_dir() const;
