@@ -221,6 +221,7 @@ void ImageProcessing::start() {
     std::cout << image_path << std::endl;
     for (auto &p : fs::directory_iterator(image_path)) {
         if (p.path().has_extension()) {
+            std::cout << "Process image " + p.path().string() << std::endl;
             cv::Mat img = cv::imread(p.path().string());
             if (!img.data) {
                 std::cout << "Can't open " + p.path().string() + " as image." << std::endl;

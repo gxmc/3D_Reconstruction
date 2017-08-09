@@ -50,6 +50,10 @@ class OpenMVS {
     fs::path mesh_texture_path;
     MVS::Scene scene;
     bool success_on_previous_step = true;
+    bool simplified = true;
+    bool automatic_execution = true;
+    std::string common_distance_param;
+    std::string common_simplify_ratio_param;
 
     // 0. Convert colmap NVM format to OpenMVS MVS format.
     void convert_from_nvm_to_mvs();
@@ -58,27 +62,27 @@ class OpenMVS {
     void densify_point_cloud();
 
     // 2. Remove NAN points after densifying.
-    void remove_nan_values(MVS::PointCloud::PointArr & cloud);
     void remove_nan_points();
 
     // 3. Mesh reconstruction
-    void reconstruct_mesh(float const d);
+    void reconstruct_mesh(double const distance);
 
     // 4. Mesh refinement
     void refining_mesh();
 
     // 5. Simplify the mesh
-    std::string double_to_string(double val);
     void simplify_mesh(double ratio, double aggressiveness);
 
     // 6. Texture the mesh
-    fs::path texture_mesh(double const ratio);
+    fs::path texture_mesh();
 
     // 7. Centering the mesh
     void centering_textured_mesh(fs::path const & textured_mesh_path);
 public:
+    bool get_status() const;
+
     // constructor
-    explicit OpenMVS(fs::path const & dir);
+    explicit OpenMVS(fs::path const & dir, bool set_automatic_execution);
 
     // pipeline
     void build_model_from_sparse_point_cloud();

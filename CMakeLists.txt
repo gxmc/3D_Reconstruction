@@ -10,10 +10,10 @@ include_directories(${YOUR_DIRECTORY} "/home/user/CLionProjects/Reconstruction")
 set(SOURCE_FILES main.cpp image_processing.cpp colmap.cpp openmvs.cpp simplify_mesh.cpp)
 add_executable(Reconstruction ${SOURCE_FILES} ${HEADER_FILES})
 
-set (CMAKE_CXX_FLAGS "-std=c++11 -fopenmp -O3")
+set (CMAKE_CXX_FLAGS "-std=c++11 -fopenmp")
 
 find_package(OpenMVS REQUIRED)
 find_library(/usr/local/lib/OpenMVS/ libMVS.a)
 include_directories(/home/user/Downloads/openMVS-master/libs/)
 
-target_link_libraries( Reconstruction ${OpenCV_LIBS} -lstdc++fs ${OpenCV_LIBS} MVS)
+target_link_libraries( Reconstruction ${OpenCV_LIBS} -lstdc++fs MVS)
