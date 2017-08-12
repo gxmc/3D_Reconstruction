@@ -6,14 +6,22 @@ include_directories(EIGEN3_INCLUDE_DIR "/usr/local/include/eigen3/" )
 
 find_package(OpenCV REQUIRED)
 
+# For MVS as shared library. Extra for static MVS lib case.
+find_package(Boost REQUIRED system)
+
 include_directories(${YOUR_DIRECTORY} "/home/user/CLionProjects/Reconstruction")
 set(SOURCE_FILES main.cpp image_processing.cpp colmap.cpp openmvs.cpp simplify_mesh.cpp)
 add_executable(Reconstruction ${SOURCE_FILES} ${HEADER_FILES})
 
-set (CMAKE_CXX_FLAGS "-std=c++11 -fopenmp")
+set (CMAKE_CXX_FLAGS "-std=c++11")
 
+# MVS as shared library
 find_package(OpenMVS REQUIRED)
-find_library(/usr/local/lib/OpenMVS/ libMVS.a)
-include_directories(/home/user/Downloads/openMVS-master/libs/)
+target_link_libraries( Reconstruction ${OpenCV_LIBS} ${Boost_LIBRARIES} -lstdc++fs /usr/local/lib/OpenMVS/libMVS.so)
 
-target_link_libraries( Reconstruction ${OpenCV_LIBS} -lstdc++fs MVS)
+
+# or MVS as static library
+#find_package(OpenMVS REQUIRED)
+#find_library(/usr/local/lib/OpenMVS/ libMVS.a)
+#include_directories(/home/user/Downloads/openMVS-master/libs/)
+#target_link_libraries( Reconstruction ${OpenCV_LIBS} -lstdc++fs -fopenmp MVS)
